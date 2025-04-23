@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
@@ -86,7 +86,7 @@ app.MapPost("/token", (string username, string password, HttpContext context) =>
     if (username == "test" && password == "password")
     {
 
-        var tokenHandler = new JwtSecurityTokenHandler();
+        var tokenHandler = new JsonWebTokenHandler();
         var key = Encoding.ASCII.GetBytes(jwtSettings.Key);
         var tokenDescriptor = new SecurityTokenDescriptor
         {
@@ -101,9 +101,8 @@ app.MapPost("/token", (string username, string password, HttpContext context) =>
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
         };
         var token = tokenHandler.CreateToken(tokenDescriptor);
-        var jwt = tokenHandler.WriteToken(token);
 
-        return Results.Ok(new { Token = jwt });
+        return Results.Ok(new { Token = token });
     }
     return Results.Unauthorized();
 })
