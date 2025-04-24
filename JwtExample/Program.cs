@@ -14,7 +14,6 @@ builder.Services.AddEndpointsApiExplorer();
 
 
 builder.Services.AddAuthorization();
-
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -82,20 +81,19 @@ app.MapPost("/token", (string username, string password, HttpContext context) =>
 {
     var jwtSettings = context.RequestServices.GetRequiredService<IConfiguration>()
         .GetSection("JwtSettings").Get<JwtSettings>()!;
-
-    if (username == "test" && password == "password")
+    var creditionals = UserCreditionals.ValidateCreditionals(username, password);
+    if (creditionals != null)
     {
-
         var tokenHandler = new JsonWebTokenHandler();
         var key = Encoding.ASCII.GetBytes(jwtSettings.Key);
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, username)
-            }),
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Name, creditionals.Username),
+                new Claim(ClaimTypes.Role, creditionals.Role),
+            ]),
             Expires = DateTime.UtcNow.AddDays(jwtSettings.AccessTokenExpirationMinutes),
-            IssuedAt = DateTime.UtcNow,
             Issuer = jwtSettings.Issuer,
             Audience = jwtSettings.Audience,
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
@@ -112,11 +110,18 @@ app.MapPost("/token", (string username, string password, HttpContext context) =>
 
 
 
-app.MapGet("/hello", [Authorize] () =>
+app.MapGet("/helloadmin", [Authorize(Roles ="Admin")] (HttpContext context) =>
+{
+    return Results.Ok($"Hello {context.User.Identity?.Name}");
+})
+.WithName("Hello Admin")
+.WithOpenApi();
+
+app.MapGet("/hellouser", [Authorize(Roles ="User")] () =>
 {
     return Results.Ok("Hello");
 })
-.WithName("Hello")
+.WithName("Hello User")
 .WithOpenApi();
 
 app.Run();
@@ -129,4 +134,34 @@ public class JwtSettings
     public string Audience { get; set; } = default!;
     public int AccessTokenExpirationMinutes { get; set; }
     public int RefreshTokenExpirationDays { get; set; }
+}
+
+public class UserCreditionals
+{
+    public string Username { get; set; } = default!;
+    public string Password { get; set; } = default!;
+    public string Role { get; set; } = default!;
+
+
+    public static UserCreditionals? ValidateCreditionals(string username, string password)
+    {
+        List<UserCreditionals> users = new List<UserCreditionals>
+        {
+            new UserCreditionals
+            {
+                Username = "test",
+                Password = "password",
+                Role = "Admin"
+            },
+            new UserCreditionals
+            {
+                Username = "test2",
+                Password = "password2",
+                Role = "User"
+            }
+        };
+
+
+        return users.FirstOrDefault(x => x.Username == username && x.Password == password) ?? null;
+    }
 }
