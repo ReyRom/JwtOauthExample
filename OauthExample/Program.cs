@@ -1,55 +1,83 @@
-using AspNet.Security.OAuth.GitHub;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
-using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = "GitHub";
 })
-.AddCookie(options =>
+.AddCookie()
+.AddOAuth("GitHub", options =>
 {
-    options.LoginPath = "/login";
-    options.LogoutPath = "/signout";
-})
-.AddGitHub(options =>
-{
-    options.ClientId = builder.Configuration["GitHub:ClientId"]!;
-    options.ClientSecret = builder.Configuration["GitHub:ClientSecret"]!;
-    options.Scope.Add("user:email");
+    options.ClientId = builder.Configuration["GitHub:ClientId"];
+    options.ClientSecret = builder.Configuration["GitHub:ClientSecret"];
+    options.CallbackPath = "/signin-github";
+
+    options.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
+    options.TokenEndpoint = "https://github.com/login/oauth/access_token";
+    options.UserInformationEndpoint = "https://api.github.com/user";
+
+    options.SaveTokens = true;
+
+    options.ClaimActions.MapJsonKey(ClaimTypes.NameIdentifier, "id");
+    options.ClaimActions.MapJsonKey(ClaimTypes.Name, "login");
+
+    options.Events = new OAuthEvents
+    {
+        OnCreatingTicket = async context =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, context.Options.UserInformationEndpoint);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", context.AccessToken);
+            request.Headers.UserAgent.ParseAdd("OauthExample");
+
+            var response = await context.Backchannel.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            using var user = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            context.RunClaimActions(user.RootElement);
+        }
+    };
 });
+
 
 var app = builder.Build();
 
 app.UseAuthentication();
 
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+app.MapGet("/", async context =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        var name = context.User.Identity.Name;
+        await context.Response.WriteAsync($"Hello, {name}!");
+    }
+    else
+    {
+        context.Response.Redirect("/login");
+    }
+})
+.WithName("Main")
+.WithOpenApi();
 
-app.MapGet("/login", () =>
+app.MapGet("/login", async context =>
 {
-    return Results.Redirect("/signin-github");
+    await context.ChallengeAsync("GitHub", new AuthenticationProperties { RedirectUri = "/" });
 })
 .WithName("Login")
 .WithOpenApi();
 
-app.MapGet("/hello", [Authorize] (HttpContext context) =>
+app.MapGet("/logout", async context =>
 {
-    return Results.Ok($"Hello {context.User.Identity?.Name}");
+    await context.SignOutAsync();
+    context.Response.Redirect("/");
 })
-.WithName("Hello Admin")
+.WithName("Logout")
 .WithOpenApi();
+
 
 app.Run();
